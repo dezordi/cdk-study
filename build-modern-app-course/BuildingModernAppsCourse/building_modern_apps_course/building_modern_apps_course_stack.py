@@ -6,6 +6,8 @@ from aws_cdk import (
     aws_s3_deployment as s3_deploy,
     aws_apigateway as apigw,
     aws_cognito as cognito,
+    aws_lambda as _lambda,
+    aws_iam as iam
 )
 
 
@@ -124,6 +126,9 @@ class BuildingModernAppsCourseStack(Stack):
             self, "DragonsAppCognitoAuthorizer",authorizer_name="cognito-authorizer",cognito_user_pools=[user_pool]
         )
 
+        """
+        This part of code encompasses module 2 and 3, and is replaced in module 4
+        
         # create endpoints
         dragons_api_endpoint.add_method(
             "GET",
@@ -138,6 +143,7 @@ class BuildingModernAppsCourseStack(Stack):
             authorizer=cognito_authorizer,
         )
 
+        """
         dragon_model = dragons_api.add_model(
             "DragonResponseModel",
             content_type="application/json",
@@ -183,5 +189,71 @@ class BuildingModernAppsCourseStack(Stack):
                 request_validator_name="request-dragon-post",
                 validate_request_body=True,
             ),
+            authorizer=cognito_authorizer,
+        )
+
+        # start of https://aws-tc-largeobjects.s3.amazonaws.com/DEV-AWS-MO-BuildingRedux/exercise-4-lambda.html
+
+        iam_ssm_statement = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["ssm:GetParameters", "ssm:GetParameter"],
+            resources=["arn:aws:ssm:us-east-1:*:parameter/dragon*"],
+        )
+
+        list_dragon = _lambda.Function(
+            self,
+            "listDragonLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset("lambda"),
+            handler="list_dragon.listDragons",
+            initial_policy=[iam_ssm_statement]
+        )
+
+        valid_dragon = _lambda.Function(
+            self,
+            "validDragonLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset("lambda"),
+            handler="valid_dragon.validate",
+        )
+
+        add_dragon = _lambda.Function(
+            self,
+            "addDragonLambda",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            code=_lambda.Code.from_asset("lambda"),
+            handler="add_dragon.addDragonToFile",
+        )
+
+        application_bucket.grant_read(list_dragon)
+        application_bucket.grant_read(valid_dragon)
+        application_bucket.grant_read(add_dragon)
+        application_bucket.grant_write(add_dragon)
+
+        list_dragon_integration = apigw.LambdaIntegration(
+            list_dragon,
+            request_templates={
+                "application/json": "{ 'statusCode': 200 }",
+            },
+        )
+
+        valid_dragon_integration = apigw.LambdaIntegration(
+            valid_dragon,
+            request_templates={
+                "application/json": "{ 'statusCode': 200 }",
+            },
+        )
+
+        add_dragon_integration = apigw.LambdaIntegration(
+            add_dragon,
+            request_templates={
+                "application/json": "{ 'statusCode': 200 }",
+            },
+        )
+
+        dragons_api_endpoint.add_method(
+            "GET",
+            list_dragon_integration,
+            method_responses=[apigw.MethodResponse(status_code="200")],
             authorizer=cognito_authorizer,
         )
